@@ -318,7 +318,7 @@ function setupBotHandlers(bot) {
       const confirmText = `📝 *KONFIRMASI PENGELUARAN*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
         `💸 *Nominal  :* \`${formatRupiah(parsed.amount)}\`\n` +
         `👛 *Dompet   :* ${parsed.wallet}\n` +
-        `🏷️ *Kategori :* ${parsed.category}\n` +
+        `🏷️ *Kategori :* *${parsed.category}*\n` +
         `📝 *Catatan  :* ${parsed.description}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━\n` +
         `_Apakah data transaksi di atas sudah benar?_`;
@@ -327,6 +327,10 @@ function setupBotHandlers(bot) {
         [
           Markup.button.callback('✅ Simpan Sekarang', `save_draft_${draftId}`),
           Markup.button.callback('❌ Batalkan', `cancel_draft_${draftId}`)
+        ],
+        [
+          Markup.button.callback('🏷️ Ganti Kategori', `choose_cat_${draftId}`),
+          Markup.button.callback('👛 Ganti Dompet', `choose_wal_${draftId}`)
         ]
       ]);
 
@@ -376,32 +380,142 @@ function setupBotHandlers(bot) {
   // CALLBACK QUERY HANDLERS (KONFIRMASI, PILIH DOMPET, BATAL, UNDO)
   // ----------------------------------------------------------------------
 
-  // Pilih dompet dari scan nota
-  bot.action(/^set_wallet_(df_[a-z0-9]+)_(.+)$/, async (ctx) => {
+  // Buka menu ganti kategori
+  bot.action(/^choose_cat_(df_[a-z0-9]+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const draftId = ctx.match[1];
-    const chosenWallet = decodeURIComponent(ctx.match[2]);
-
     const draft = pendingDrafts.get(draftId);
-    if (!draft) {
-      return ctx.reply('⚠️ Transaksi ini sudah kedaluwarsa atau sudah diproses.');
-    }
+    if (!draft) return ctx.reply('⚠️ Transaksi sudah kedaluwarsa.');
 
-    draft.wallet = chosenWallet;
+    const categories = [
+      ['🛒 Kebutuhan Rumah Tangga', '💡 Tagihan Bulanan'],
+      ['🍲 Makanan & Kuliner', '⛽ Transportasi & Kendaraan'],
+      ['🛍️ Belanja & Pribadi', '💊 Kesehatan & Medis'],
+      ['🎮 Hiburan & Lifestyle', '🤲 Sosial & Sedekah'],
+      ['💼 Operasional Kerja', '📦 Lain-lain']
+    ];
+
+    const buttons = categories.map(row => row.map(cat => {
+      const cleanCat = cat.replace(/^[^\s]+\s+/, '');
+      return Markup.button.callback(cat, `set_cat_${draftId}_${encodeURIComponent(cleanCat)}`);
+    }));
+
+    buttons.push([Markup.button.callback('⬅️ Kembali ke Konfirmasi', `back_confirm_${draftId}`)]);
+
+    await ctx.editMessageText(
+      `🏷️ *PILIH KATEGORI PENGELUARAN*\n━━━━━━━━━━━━━━━━━━━━━━\n_Pilih kategori yang paling sesuai untuk transaksi **${draft.description}**:_`,
+      { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }
+    );
+  });
+
+  // Set kategori yang dipilih
+  bot.action(/^set_cat_(df_[a-z0-9]+)_(.+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const draftId = ctx.match[1];
+    const newCat = decodeURIComponent(ctx.match[2]);
+    const draft = pendingDrafts.get(draftId);
+    if (!draft) return ctx.reply('⚠️ Transaksi sudah kedaluwarsa.');
+
+    draft.category = newCat;
     pendingDrafts.set(draftId, draft);
 
-    const confirmText = `📝 *KONFIRMASI SIMPAN TRANSAKSI NOTA*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+    const confirmText = `📝 *KONFIRMASI PENGELUARAN*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
       `💸 *Nominal  :* \`${formatRupiah(draft.amount)}\`\n` +
       `👛 *Dompet   :* ${draft.wallet}\n` +
-      `🏷️ *Kategori :* ${draft.category}\n` +
+      `🏷️ *Kategori :* *${draft.category}* ✅\n` +
       `📝 *Catatan  :* ${draft.description}\n` +
       `━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `_Klik **Simpan Sekarang** untuk memotong saldo ${draft.wallet}:_`;
+      `_Apakah data transaksi di atas sudah benar?_`;
 
     const keyboard = Markup.inlineKeyboard([
       [
         Markup.button.callback('✅ Simpan Sekarang', `save_draft_${draftId}`),
         Markup.button.callback('❌ Batalkan', `cancel_draft_${draftId}`)
+      ],
+      [
+        Markup.button.callback('🏷️ Ganti Kategori', `choose_cat_${draftId}`),
+        Markup.button.callback('👛 Ganti Dompet', `choose_wal_${draftId}`)
+      ]
+    ]);
+
+    await ctx.editMessageText(confirmText, { parse_mode: 'Markdown', ...keyboard });
+  });
+
+  // Buka menu ganti dompet
+  bot.action(/^choose_wal_(df_[a-z0-9]+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const draftId = ctx.match[1];
+    const draft = pendingDrafts.get(draftId);
+    if (!draft) return ctx.reply('⚠️ Transaksi sudah kedaluwarsa.');
+
+    const wallets = db.getWallets();
+    const buttons = wallets.map(w => [
+      Markup.button.callback(`👛 ${w.name} (Saldo: ${formatRupiah(w.balance)})`, `set_wal_sel_${draftId}_${encodeURIComponent(w.name)}`)
+    ]);
+    buttons.push([Markup.button.callback('⬅️ Kembali ke Konfirmasi', `back_confirm_${draftId}`)]);
+
+    await ctx.editMessageText(
+      `👛 *PILIH DOMPET PEMBAYARAN*\n━━━━━━━━━━━━━━━━━━━━━━\n_Pilih dompet yang digunakan untuk transaksi ini:_`,
+      { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }
+    );
+  });
+
+  // Set dompet yang dipilih
+  bot.action(/^set_wal_sel_(df_[a-z0-9]+)_(.+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const draftId = ctx.match[1];
+    const newWal = decodeURIComponent(ctx.match[2]);
+    const draft = pendingDrafts.get(draftId);
+    if (!draft) return ctx.reply('⚠️ Transaksi sudah kedaluwarsa.');
+
+    draft.wallet = newWal;
+    pendingDrafts.set(draftId, draft);
+
+    const confirmText = `📝 *KONFIRMASI PENGELUARAN*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💸 *Nominal  :* \`${formatRupiah(draft.amount)}\`\n` +
+      `👛 *Dompet   :* *${draft.wallet}* ✅\n` +
+      `🏷️ *Kategori :* *${draft.category}*\n` +
+      `📝 *Catatan  :* ${draft.description}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `_Apakah data transaksi di atas sudah benar?_`;
+
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('✅ Simpan Sekarang', `save_draft_${draftId}`),
+        Markup.button.callback('❌ Batalkan', `cancel_draft_${draftId}`)
+      ],
+      [
+        Markup.button.callback('🏷️ Ganti Kategori', `choose_cat_${draftId}`),
+        Markup.button.callback('👛 Ganti Dompet', `choose_wal_${draftId}`)
+      ]
+    ]);
+
+    await ctx.editMessageText(confirmText, { parse_mode: 'Markdown', ...keyboard });
+  });
+
+  // Tombol Kembali ke Konfirmasi
+  bot.action(/^back_confirm_(df_[a-z0-9]+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const draftId = ctx.match[1];
+    const draft = pendingDrafts.get(draftId);
+    if (!draft) return ctx.reply('⚠️ Transaksi sudah kedaluwarsa.');
+
+    const confirmText = `📝 *KONFIRMASI PENGELUARAN*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💸 *Nominal  :* \`${formatRupiah(draft.amount)}\`\n` +
+      `👛 *Dompet   :* *${draft.wallet}*\n` +
+      `🏷️ *Kategori :* *${draft.category}*\n` +
+      `📝 *Catatan  :* ${draft.description}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `_Apakah data transaksi di atas sudah benar?_`;
+
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('✅ Simpan Sekarang', `save_draft_${draftId}`),
+        Markup.button.callback('❌ Batalkan', `cancel_draft_${draftId}`)
+      ],
+      [
+        Markup.button.callback('🏷️ Ganti Kategori', `choose_cat_${draftId}`),
+        Markup.button.callback('👛 Ganti Dompet', `choose_wal_${draftId}`)
       ]
     ]);
 
