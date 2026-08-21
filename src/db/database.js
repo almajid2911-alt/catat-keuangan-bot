@@ -278,6 +278,36 @@ function getSummaryStats() {
   };
 }
 
+function getFrequentExpenses(limit = 6) {
+  const data = readDb();
+  const txs = data.transactions || [];
+  const freqMap = {};
+
+  txs.forEach(t => {
+    if (t.type === 'EXPENSE' && t.description) {
+      const desc = t.description.trim();
+      const key = desc.toLowerCase();
+      if (!freqMap[key]) {
+        freqMap[key] = {
+          description: desc,
+          count: 0,
+          amount: t.amount,
+          wallet: t.source_wallet || 'Bank Mandiri',
+          category: t.category || 'Belanja Kebutuhan'
+        };
+      }
+      freqMap[key].count++;
+      freqMap[key].amount = t.amount;
+      freqMap[key].wallet = t.source_wallet || freqMap[key].wallet;
+      freqMap[key].category = t.category || freqMap[key].category;
+    }
+  });
+
+  return Object.values(freqMap)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
+}
+
 module.exports = {
   getWallets,
   getWalletByName,
@@ -289,5 +319,6 @@ module.exports = {
   recordTransfer,
   undoTransaction,
   getTransactions,
-  getSummaryStats
+  getSummaryStats,
+  getFrequentExpenses
 };

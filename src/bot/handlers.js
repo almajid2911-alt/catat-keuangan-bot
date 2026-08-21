@@ -54,7 +54,15 @@ function setupBotHandlers(bot) {
       `• \`transfer 100k mandiri ke shopeepay\`\n\n` +
       `_Setiap transaksi akan meminta konfirmasi Anda terlebih dahulu sebelum disimpan._`;
 
-    const keyboard = Markup.inlineKeyboard([
+    const frequent = db.getFrequentExpenses(4);
+    let freqButtons = [];
+    if (frequent && frequent.length > 0) {
+      freqButtons = frequent.map((f, idx) => [
+        Markup.button.callback(`⚡ ${f.description} (${formatRupiah(f.amount)})`, `quick_freq_${idx}`)
+      ]);
+    }
+
+    const baseButtons = [
       [
         Markup.button.callback('💳 Cek Saldo Dompet', 'action_saldo'),
         Markup.button.callback('📊 Rekap Keuangan', 'action_rekap')
@@ -70,7 +78,9 @@ function setupBotHandlers(bot) {
       [
         Markup.button.url('🌐 Buka Web Dashboard', `http://${WEB_DOMAIN}`)
       ]
-    ]);
+    ];
+
+    const keyboard = Markup.inlineKeyboard([...freqButtons, ...baseButtons]);
 
     await ctx.reply(text, { parse_mode: 'Markdown', ...keyboard });
   });
@@ -514,16 +524,63 @@ function setupBotHandlers(bot) {
     await ctx.reply(text, { parse_mode: 'Markdown' });
   });
 
+  bot.action(/^quick_freq_(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const idx = parseInt(ctx.match[1], 10);
+    const frequent = db.getFrequentExpenses(10);
+    const item = frequent[idx];
+
+    if (!item) {
+      return ctx.reply('⚠️ Template transaksi favorit tidak ditemukan.');
+    }
+
+    const draftId = createDraftId();
+    pendingDrafts.set(draftId, {
+      action: 'EXPENSE',
+      amount: item.amount,
+      wallet: item.wallet,
+      category: item.category,
+      description: item.description,
+      created_at: Date.now()
+    });
+
+    const confirmText = `⚡ *KONFIRMASI PENGELUARAN CEPAT (FAVORIT)*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💸 *Nominal  :* \`${formatRupiah(item.amount)}\`\n` +
+      `👛 *Dompet   :* ${item.wallet}\n` +
+      `🏷️ *Kategori :* ${item.category}\n` +
+      `📝 *Catatan  :* ${item.description}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `_Klik **Simpan Sekarang** untuk mengeksekusi tanpa perlu mengetik ulang:_`;
+
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('✅ Simpan Sekarang', `save_draft_${draftId}`),
+        Markup.button.callback('❌ Batalkan', `cancel_draft_${draftId}`)
+      ]
+    ]);
+
+    await ctx.reply(confirmText, { parse_mode: 'Markdown', ...keyboard });
+  });
+
   bot.action('action_keluar_help', async (ctx) => {
     await ctx.answerCbQuery();
+    const frequent = db.getFrequentExpenses(6);
+    let buttons = [];
+    if (frequent && frequent.length > 0) {
+      buttons = frequent.map((f, i) => [
+        Markup.button.callback(`⚡ ${f.description} (${formatRupiah(f.amount)})`, `quick_freq_${i}`)
+      ]);
+    }
+
     await ctx.reply(
       `📉 *Cara Mencatat Pengeluaran:*\n\n` +
-      `Ketik pesan teks langsung:\n` +
-      `👉 \`keluar 25rb mandiri makan bakso\`\n` +
-      `👉 \`beli bensin 50k tunai\`\n` +
-      `👉 \`bayar listrik 150k shopeepay\`\n\n` +
-      `📸 Atau **Kirim Foto Struk/Nota** belanja Anda!`,
-      { parse_mode: 'Markdown' }
+      `1️⃣ *Ketik langsung:* \`keluar 25rb mandiri makan bakso\`\n` +
+      `2️⃣ *Kirim Foto Struk/Nota:* AI akan membaca otomatis!\n` +
+      `3️⃣ *Pilih pengeluaran sering Anda di bawah ini:*`,
+      {
+        parse_mode: 'Markdown',
+        ...(buttons.length ? Markup.inlineKeyboard(buttons) : {})
+      }
     );
   });
 
