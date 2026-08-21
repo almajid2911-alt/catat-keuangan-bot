@@ -81,13 +81,26 @@ function addWallet(name, initialBalance = 0) {
 
 function updateWalletBalance(name, newBalance) {
   const data = readDb();
-  const w = data.wallets.find(w => w.name.toLowerCase() === name.trim().toLowerCase() || w.name.toLowerCase().includes(name.trim().toLowerCase()));
-  if (!w) throw new Error(`Dompet "${name}" tidak ditemukan.`);
+  const normalized = name.trim().toLowerCase();
+  const wallet = data.wallets.find(w => w.name.toLowerCase() === normalized || w.name.toLowerCase().includes(normalized));
+  if (!wallet) throw new Error(`Dompet "${name}" tidak ditemukan.`);
 
-  w.balance = Number(newBalance) || 0;
-  w.updated_at = new Date().toISOString();
+  wallet.balance = Number(newBalance);
+  wallet.updated_at = new Date().toISOString();
   writeDb(data);
-  return w;
+  return wallet;
+}
+
+function replaceWallets(walletsList) {
+  const data = readDb();
+  data.wallets = walletsList.map((w, idx) => ({
+    id: idx + 1,
+    name: w.name.trim(),
+    balance: Number(w.balance) || 0,
+    updated_at: new Date().toISOString()
+  }));
+  writeDb(data);
+  return data.wallets;
 }
 
 function adjustWalletBalance(name, delta) {
@@ -410,6 +423,7 @@ module.exports = {
   getWalletByName,
   addWallet,
   updateWalletBalance,
+  replaceWallets,
   adjustWalletBalance,
   recordExpense,
   recordIncome,

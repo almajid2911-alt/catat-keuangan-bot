@@ -68,6 +68,9 @@ function setupBotHandlers(bot) {
         Markup.button.callback('📊 Rekap Keuangan', 'action_rekap')
       ],
       [
+        Markup.button.callback('🔄 Tarik Saldo dari Google Sheet', 'action_sync_sheet')
+      ],
+      [
         Markup.button.callback('📉 Catat Pengeluaran', 'action_keluar_help'),
         Markup.button.callback('📈 Catat Pemasukan', 'action_masuk_help')
       ],
@@ -93,9 +96,10 @@ function setupBotHandlers(bot) {
     let text = `💳 *STATUS SALDO SELURUH DOMPET*\n━━━━━━━━━━━━━━━━━━━━━━\n`;
     wallets.forEach((w) => {
       let icon = '👛';
-      if (w.name.toLowerCase().includes('mandiri')) icon = '🏦';
-      else if (w.name.toLowerCase().includes('shopee')) icon = '🛒';
+      if (w.name.toLowerCase().includes('mandiri') || w.name.toLowerCase().includes('bni') || w.name.toLowerCase().includes('bri') || w.name.toLowerCase().includes('btn') || w.name.toLowerCase().includes('bca') || w.name.toLowerCase().includes('neo')) icon = '🏦';
+      else if (w.name.toLowerCase().includes('shopee') || w.name.toLowerCase().includes('gopay') || w.name.toLowerCase().includes('link')) icon = '🛒';
       else if (w.name.toLowerCase().includes('tunai') || w.name.toLowerCase().includes('cash')) icon = '💵';
+      else if (w.name.toLowerCase().includes('isteri') || w.name.toLowerCase().includes('istri')) icon = '💍';
       
       text += `${icon} *${w.name}*: \`${formatRupiah(w.balance)}\`\n`;
     });
@@ -104,6 +108,9 @@ function setupBotHandlers(bot) {
     text += `💰 *TOTAL KEKAYAAN:* \`${formatRupiah(stats.totalBalance)}\``;
 
     const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('🔄 Tarik Saldo dari Google Sheet', 'action_sync_sheet')
+      ],
       [
         Markup.button.callback('🔄 Transfer Antar Dompet', 'action_transfer_help'),
         Markup.button.callback('📊 Rekap Bulanan', 'action_rekap')
@@ -245,8 +252,15 @@ function setupBotHandlers(bot) {
   });
 
   // /syncsheet (Tarik saldo yang diedit langsung di Google Sheet)
-  bot.command(['syncsheet', 'tariksheet', 'tarik'], async (ctx) => {
-    const waiting = await ctx.reply('⏳ *Sedang memeriksa dan menarik data dari Google Sheet...*', { parse_mode: 'Markdown' });
+  const handleSheetSync = async (ctx, isCallback = false) => {
+    let waitingMsg;
+    if (isCallback) {
+      await ctx.answerCbQuery('Menarik data dari Google Sheet...');
+      waitingMsg = await ctx.reply('⏳ *Sedang memeriksa & menarik saldo dompet dari Google Sheet...*', { parse_mode: 'Markdown' });
+    } else {
+      waitingMsg = await ctx.reply('⏳ *Sedang memeriksa & menarik saldo dompet dari Google Sheet...*', { parse_mode: 'Markdown' });
+    }
+
     try {
       const { fetchWalletsFromSheet } = require('../services/sheets');
       const sheetWallets = await fetchWalletsFromSheet();
@@ -254,36 +268,48 @@ function setupBotHandlers(bot) {
       if (!sheetWallets || !sheetWallets.length) {
         return ctx.telegram.editMessageText(
           ctx.chat.id,
-          waiting.message_id,
+          waitingMsg.message_id,
           null,
-          '⚠️ *Google Apps Script Web App belum terhubung.*\n_Ikuti panduan setup Web App Google Script untuk mengaktifkan sinkronisasi otomatis._',
+          '⚠️ *Gagal membaca Google Sheet.*\n_Pastikan Google Apps Script sudah terpasang dan tab MONITORING KEUANGAN PERSONAL memiliki data._',
           { parse_mode: 'Markdown' }
         );
       }
 
-      let updatedList = [];
-      for (const sw of sheetWallets) {
-        try {
-          const local = db.getWalletByName(sw.name);
-          if (local) {
-            db.updateWalletBalance(local.name, sw.balance);
-            updatedList.push(`• *${local.name}*: \`${formatRupiah(sw.balance)}\``);
-          } else {
-            db.addWallet(sw.name, sw.balance);
-            updatedList.push(`• *${sw.name}* (Baru): \`${formatRupiah(sw.balance)}\``);
-          }
-        } catch (err) {}
-      }
+      const updatedWallets = db.replaceWallets(sheetWallets);
+      const stats = db.getSummaryStats();
+
+      let listText = '';
+      updatedWallets.forEach((w) => {
+        let icon = '👛';
+        if (w.name.toLowerCase().includes('mandiri') || w.name.toLowerCase().includes('bni') || w.name.toLowerCase().includes('bri') || w.name.toLowerCase().includes('btn') || w.name.toLowerCase().includes('bca') || w.name.toLowerCase().includes('neo')) icon = '🏦';
+        else if (w.name.toLowerCase().includes('shopee') || w.name.toLowerCase().includes('gopay') || w.name.toLowerCase().includes('link')) icon = '🛒';
+        else if (w.name.toLowerCase().includes('tunai') || w.name.toLowerCase().includes('cash')) icon = '💵';
+        else if (w.name.toLowerCase().includes('isteri') || w.name.toLowerCase().includes('istri')) icon = '💍';
+
+        listText += `${icon} *${w.name}*: \`${formatRupiah(w.balance)}\`\n`;
+      });
 
       const msg = `✅ *SINKRONISASI SALDO GOOGLE SHEET BERHASIL!*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
-        updatedList.join('\n') + '\n━━━━━━━━━━━━━━━━━━━━━━\n' +
-        `_Data lokal bot telah diperbarui sesuai isi Google Sheet Anda._`;
+        listText +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `💰 *TOTAL KEKAYAAN (Net Worth):* \`${formatRupiah(stats.totalBalance)}\`\n` +
+        `_Seluruh saldo bot telah disinkronkan sesuai tabel Google Sheet Anda._`;
 
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, msg, { parse_mode: 'Markdown' });
+      const keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback('💳 Cek Saldo', 'action_saldo'),
+          Markup.button.url('🌐 Buka Web Dashboard', `http://${WEB_DOMAIN}`)
+        ]
+      ]);
+
+      await ctx.telegram.editMessageText(ctx.chat.id, waitingMsg.message_id, null, msg, { parse_mode: 'Markdown', ...keyboard });
     } catch (err) {
-      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Gagal sinkronisasi: ${err.message}`, { parse_mode: 'Markdown' });
+      await ctx.telegram.editMessageText(ctx.chat.id, waitingMsg.message_id, null, `❌ Gagal sinkronisasi: ${err.message}`, { parse_mode: 'Markdown' });
     }
-  });
+  };
+
+  bot.command(['syncsheet', 'tariksheet', 'tarik', 'sync'], (ctx) => handleSheetSync(ctx, false));
+  bot.action('action_sync_sheet', (ctx) => handleSheetSync(ctx, true));
 
   // /cari [keyword/kategori] [bulan] [tahun]
   bot.command(['cari', 'search', 'filter'], async (ctx) => {
