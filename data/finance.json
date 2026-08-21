@@ -1,0 +1,55 @@
+{
+  "wallets": [
+    {
+      "id": 1,
+      "name": "Bank Mandiri",
+      "balance": 2375000,
+      "updated_at": "2026-08-21T07:59:41.016Z"
+    },
+    {
+      "id": 2,
+      "name": "ShopeePay",
+      "balance": 450000,
+      "updated_at": "2026-08-21T07:59:41.018Z"
+    },
+    {
+      "id": 3,
+      "name": "Uang Tunai",
+      "balance": 150000,
+      "updated_at": "2026-08-21T07:59:40.931Z"
+    }
+  ],
+  "transactions": [
+    {
+      "id": 2,
+      "type": "TRANSFER",
+      "amount": 100000,
+      "source_wallet": "Bank Mandiri",
+      "target_wallet": "ShopeePay",
+      "category": "Transfer Antar Dompet",
+      "description": "Topup ShopeePay",
+      "created_at": "21/8/2026 15.59.41",
+      "timestamp": 1787299181021
+    },
+    {
+      "id": 1,
+      "type": "EXPENSE",
+      "amount": 25000,
+      "source_wallet": "Bank Mandiri",
+      "target_wallet": null,
+      "category": "Makanan & Minuman",
+      "description": "Makan siang",
+      "created_at": "21/8/2026 15.59.40",
+      "timestamp": 1787299181010
+    }
+  ],
+  "categories": [
+    "Makanan & Minuman",
+    "Transportasi",
+    "Belanja Kebutuhan",
+    "Tagihan & Listrik",
+    "Hiburan",
+    "Kesehatan",
+    "Pemasukan"
+  ]
+}

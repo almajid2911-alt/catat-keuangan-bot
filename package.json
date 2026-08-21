@@ -1,0 +1,17 @@
+{
+  "name": "catat-keuangan-bot",
+  "version": "1.0.0",
+  "description": "Bot Telegram Catat Keuangan & Multi-Dompet Terintegrasi Web Dashboard & Google Sheets",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "googleapis": "^144.0.0",
+    "telegraf": "^4.16.3"
+  }
+}
