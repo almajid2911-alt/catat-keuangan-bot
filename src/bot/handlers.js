@@ -293,6 +293,59 @@ function setupBotHandlers(bot) {
     if (text.startsWith('/')) return;
 
     const wallets = db.getWallets();
+
+    // 1. Deteksi Multi-line Batch Entry (Sekali kirim banyak baris)
+    if (text.includes('\n')) {
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      const batchItems = [];
+
+      for (const line of lines) {
+        const itemParsed = parseFinancialCommand(line, wallets);
+        if (itemParsed) {
+          batchItems.push(itemParsed);
+        }
+      }
+
+      if (batchItems.length > 1) {
+        const batchId = createDraftId();
+        pendingDrafts.set(batchId, {
+          isBatch: true,
+          items: batchItems,
+          created_at: Date.now()
+        });
+
+        let totalExp = 0;
+        let totalInc = 0;
+        let batchMsg = `📝 *KONFIRMASI CATAT BATCH (${batchItems.length} TRANSAKSI)*\n━━━━━━━━━━━━━━━━━━━━━━\n`;
+
+        batchItems.forEach((it, idx) => {
+          if (it.action === 'EXPENSE') {
+            totalExp += it.amount;
+            batchMsg += `${idx + 1}. 🔴 *Keluar* \`${formatRupiah(it.amount)}\` [${it.wallet}]\n   └ _${it.description}_ (${it.category})\n`;
+          } else if (it.action === 'INCOME') {
+            totalInc += it.amount;
+            batchMsg += `${idx + 1}. 🟢 *Masuk* \`${formatRupiah(it.amount)}\` [${it.wallet}]\n   └ _${it.description}_\n`;
+          } else if (it.action === 'TRANSFER') {
+            batchMsg += `${idx + 1}. 🔄 *Transfer* \`${formatRupiah(it.amount)}\` [${it.fromWallet} ➔ ${it.toWallet}]\n   └ _${it.description}_\n`;
+          }
+        });
+
+        batchMsg += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+        if (totalExp > 0) batchMsg += `📉 Total Keluar: \`${formatRupiah(totalExp)}\`\n`;
+        if (totalInc > 0) batchMsg += `📈 Total Masuk : \`${formatRupiah(totalInc)}\`\n`;
+        batchMsg += `_Apakah seluruh daftar transaksi di atas ingin disimpan sekaligus?_`;
+
+        const keyboard = Markup.inlineKeyboard([
+          [
+            Markup.button.callback(`✅ Simpan Semua (${batchItems.length} Transaksi)`, `save_batch_${batchId}`),
+            Markup.button.callback('❌ Batalkan Semua', `cancel_draft_${batchId}`)
+          ]
+        ]);
+
+        return ctx.reply(batchMsg, { parse_mode: 'Markdown', ...keyboard });
+      }
+    }
+
     const parsed = parseFinancialCommand(text, wallets);
 
     if (!parsed) {
@@ -303,7 +356,9 @@ function setupBotHandlers(bot) {
         `• \`beli bensin 50k tunai\`\n` +
         `• \`masuk 1jt mandiri gaji\`\n` +
         `• \`transfer 100k mandiri ke shopeepay\`\n\n` +
-        `📸 Atau cukup kirim **Foto Struk / Nota Belanja**!`,
+        `📝 *Atau kirim banyak baris sekaligus:*\\n` +
+        `\`keluar 15rb tunai beli bawang\\nkeluar 50rb mandiri bensin\`\n\n` +
+        `📸 Atau kirim **Foto Struk / Nota Belanja**!`,
         { parse_mode: 'Markdown' }
       );
     }
@@ -460,8 +515,8 @@ function setupBotHandlers(bot) {
     );
   });
 
-  // Set dompet yang dipilih
-  bot.action(/^set_wal_sel_(df_[a-z0-9]+)_(.+)$/, async (ctx) => {
+  // Set dompet yang dipilih (Bisa dari scan nota atau dari ganti dompet)
+  bot.action(/^(?:set_wal_sel|set_wallet)_(df_[a-z0-9]+)_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const draftId = ctx.match[1];
     const newWal = decodeURIComponent(ctx.match[2]);
@@ -520,6 +575,60 @@ function setupBotHandlers(bot) {
     ]);
 
     await ctx.editMessageText(confirmText, { parse_mode: 'Markdown', ...keyboard });
+  });
+
+  // Simpan Batch Transaksi Sekaligus
+  bot.action(/^save_batch_(df_[a-z0-9]+)$/, async (ctx) => {
+    await ctx.answerCbQuery('Menyimpan seluruh transaksi batch...');
+    const batchId = ctx.match[1];
+    const draft = pendingDrafts.get(batchId);
+
+    if (!draft || !draft.items) {
+      return ctx.reply('⚠️ Transaksi batch ini sudah kedaluwarsa atau sudah diproses.');
+    }
+
+    try {
+      let savedCount = 0;
+      let totalAmount = 0;
+
+      for (const item of draft.items) {
+        if (item.action === 'EXPENSE') {
+          const res = db.recordExpense(item.wallet, item.amount, item.category, item.description);
+          syncTransactionToSheet(res);
+          savedCount++;
+          totalAmount += item.amount;
+        } else if (item.action === 'INCOME') {
+          const res = db.recordIncome(item.wallet, item.amount, item.category, item.description);
+          syncTransactionToSheet(res);
+          savedCount++;
+        } else if (item.action === 'TRANSFER') {
+          const res = db.recordTransfer(item.fromWallet, item.toWallet, item.amount, item.description);
+          syncTransactionToSheet(res);
+          savedCount++;
+        }
+      }
+
+      pendingDrafts.delete(batchId);
+
+      const stats = db.getSummaryStats();
+      const reply = `✅ *BERHASIL MENYIMPAN ${savedCount} TRANSAKSI SEKALIGUS!*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `💳 *Total Saldo Sekarang:* \`${formatRupiah(stats.totalBalance)}\`\n` +
+        `📉 *Pengeluaran Bulan Ini:* \`${formatRupiah(stats.monthlyExpense)}\`\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `_Seluruh data telah tercatat di database & Google Sheet!_`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback('💳 Cek Saldo', 'action_saldo'),
+          Markup.button.url('🌐 Buka Dashboard', `http://${WEB_DOMAIN}`)
+        ]
+      ]);
+
+      await ctx.editMessageText(reply, { parse_mode: 'Markdown', ...keyboard });
+
+    } catch (err) {
+      await ctx.reply(`❌ *Gagal Menyimpan Batch:* ${err.message}`, { parse_mode: 'Markdown' });
+    }
   });
 
   // Simpan Draft Transaksi
