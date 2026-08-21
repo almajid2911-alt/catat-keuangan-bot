@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const db = require('./db/database');
 const { setupBotHandlers } = require('./bot/handlers');
+const { setupSchedulers } = require('./services/schedulers');
 const { renderDashboardHtml } = require('./web/dashboard');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8318227403:AAFv7NeIIKekaJfD0vfj9rgHWSVusSy2g-s';
@@ -52,6 +53,7 @@ if (BOT_TOKEN) {
   });
 
   setupBotHandlers(bot);
+  setupSchedulers(bot);
 
   // Global Error Handler
   bot.catch((err, ctx) => {
@@ -77,7 +79,9 @@ app.listen(PORT, '0.0.0.0', async () => {
         { command: 'start',    description: '🏠 Menu Utama & Bantuan' },
         { command: 'saldo',    description: '💳 Cek Saldo Seluruh Dompet' },
         { command: 'rekap',    description: '📊 Rekap Pengeluaran Bulan Ini' },
+        { command: 'cari',     description: '🔍 Cari Riwayat Transaksi (Kata Kunci/Bulan)' },
         { command: 'dompet',   description: '👛 Kelola & Tambah Dompet' },
+        { command: 'syncsheet',description: '🔄 Tarik Saldo dari Google Sheet' },
         { command: 'web',      description: '🌐 Buka Link Web Dashboard' }
       ]).catch(() => {});
       console.log('✅ [Telegram] Bot command popup menu registered!');

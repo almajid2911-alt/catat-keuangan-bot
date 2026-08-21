@@ -303,9 +303,101 @@ function getFrequentExpenses(limit = 6) {
     }
   });
 
-  return Object.values(freqMap)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, limit);
+function getDailySummary(targetDate = new Date()) {
+  const data = readDb();
+  const txs = data.transactions || [];
+  const wallets = data.wallets || [];
+  const totalBalance = wallets.reduce((acc, w) => acc + (w.balance || 0), 0);
+
+  const tDateStr = targetDate.toLocaleDateString('id-ID', { timeZone: 'Asia/Makassar' });
+
+  const todayTxs = txs.filter(t => {
+    const d = t.timestamp ? new Date(t.timestamp) : new Date();
+    const dStr = d.toLocaleDateString('id-ID', { timeZone: 'Asia/Makassar' });
+    return dStr === tDateStr;
+  });
+
+  let todayExpense = 0;
+  let todayIncome = 0;
+  let topExpense = null;
+
+  todayTxs.forEach(t => {
+    if (t.type === 'EXPENSE') {
+      todayExpense += (t.amount || 0);
+      if (!topExpense || t.amount > topExpense.amount) {
+        topExpense = t;
+      }
+    } else if (t.type === 'INCOME') {
+      todayIncome += (t.amount || 0);
+    }
+  });
+
+  return {
+    dateStr: tDateStr,
+    todayExpense,
+    todayIncome,
+    txCount: todayTxs.length,
+    topExpense,
+    transactions: todayTxs,
+    totalBalance
+  };
+}
+
+function searchTransactions({ keyword = '', category = '', month = null, year = null, limit = 50 }) {
+  const data = readDb();
+  const txs = data.transactions || [];
+
+  const kw = keyword.trim().toLowerCase();
+  const cat = category.trim().toLowerCase();
+
+  const results = txs.filter(t => {
+    const tDate = t.timestamp ? new Date(t.timestamp) : new Date();
+    
+    // Filter Year
+    if (year !== null && tDate.getFullYear() !== Number(year)) {
+      return false;
+    }
+    // Filter Month (1-12)
+    if (month !== null && (tDate.getMonth() + 1) !== Number(month)) {
+      return false;
+    }
+
+    // Filter Category
+    if (cat && !(t.category || '').toLowerCase().includes(cat)) {
+      return false;
+    }
+
+    // Filter Keyword
+    if (kw) {
+      const matchDesc = (t.description || '').toLowerCase().includes(kw);
+      const matchCat = (t.category || '').toLowerCase().includes(kw);
+      const matchSource = (t.source_wallet || '').toLowerCase().includes(kw);
+      const matchTarget = (t.target_wallet || '').toLowerCase().includes(kw);
+      if (!matchDesc && !matchCat && !matchSource && !matchTarget) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  let totalExpense = 0;
+  let totalIncome = 0;
+  results.forEach(t => {
+    if (t.type === 'EXPENSE') totalExpense += (t.amount || 0);
+    if (t.type === 'INCOME') totalIncome += (t.amount || 0);
+  });
+
+  return {
+    keyword,
+    category,
+    month,
+    year,
+    count: results.length,
+    totalExpense,
+    totalIncome,
+    transactions: results.slice(0, limit)
+  };
 }
 
 module.exports = {
@@ -320,5 +412,7 @@ module.exports = {
   undoTransaction,
   getTransactions,
   getSummaryStats,
-  getFrequentExpenses
+  getFrequentExpenses,
+  getDailySummary,
+  searchTransactions
 };

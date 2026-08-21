@@ -285,6 +285,145 @@ function setupBotHandlers(bot) {
     }
   });
 
+  // /cari [keyword/kategori] [bulan] [tahun]
+  bot.command(['cari', 'search', 'filter'], async (ctx) => {
+    const rawText = ctx.message.text.trim();
+    const parts = rawText.split(/\s+/).slice(1);
+
+    if (!parts.length) {
+      return ctx.reply(
+        `🔍 *PANDUAN PENCARIAN TRANSAKSI*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `💡 *Format Pencarian Fleksibel:*\n` +
+        `• \`/cari bensin\` (Cari seluruh pengeluaran bensin)\n` +
+        `• \`/cari indihome 08 2026\` (Cari di bulan & tahun tertentu)\n` +
+        `• \`/cari Rumah Tangga\` (Cari berdasarkan kategori)\n` +
+        `• \`/cari 08-2026\` (Cari semua transaksi Agustus 2026)`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    let month = null;
+    let year = null;
+    let keywords = [];
+
+    const monthNames = {
+      jan: 1, januari: 1, feb: 2, februari: 2, mar: 3, maret: 3,
+      apr: 4, april: 4, mei: 5, may: 5, jun: 6, juni: 6,
+      jul: 7, juli: 7, agu: 8, agustus: 8, aug: 8, sep: 9, september: 9,
+      okt: 10, oktober: 10, oct: 10, nov: 11, november: 11, des: 12, desember: 12, dec: 12
+    };
+
+    for (const p of parts) {
+      const lower = p.toLowerCase();
+      // Format MM-YYYY or YYYY-MM
+      if (/^\d{1,2}-\d{4}$/.test(lower)) {
+        const [m, y] = lower.split('-');
+        month = parseInt(m, 10);
+        year = parseInt(y, 10);
+        continue;
+      }
+      // 4 digit year
+      if (/^20\d{2}$/.test(lower)) {
+        year = parseInt(lower, 10);
+        continue;
+      }
+      // Month name
+      if (monthNames[lower]) {
+        month = monthNames[lower];
+        continue;
+      }
+      // 1-2 digit month if alone
+      if (/^(0?[1-9]|1[0-2])$/.test(lower) && month === null) {
+        month = parseInt(lower, 10);
+        continue;
+      }
+      keywords.push(p);
+    }
+
+    const searchKeyword = keywords.join(' ');
+    const res = db.searchTransactions({ keyword: searchKeyword, month, year, limit: 30 });
+
+    if (!res.count) {
+      let filterDesc = searchKeyword ? `kata kunci "*${searchKeyword}*"` : 'kriteria tersebut';
+      if (month && year) filterDesc += ` pada bulan ${month}/${year}`;
+      return ctx.reply(`🔍 *Tidak Ditemukan:*\nTidak ada transaksi yang cocok dengan ${filterDesc}.`, { parse_mode: 'Markdown' });
+    }
+
+    let periodLabel = 'Semua Waktu';
+    if (month && year) periodLabel = `Bulan ${month} / ${year}`;
+    else if (year) periodLabel = `Tahun ${year}`;
+    else if (month) periodLabel = `Bulan ${month}`;
+
+    let reply = `🔍 *HASIL PENCARIAN TRANSAKSI*\n━━━━━━━━━━━━━━━━━━━━━━\n`;
+    if (searchKeyword) reply += `🔑 *Kata Kunci:* \`${searchKeyword}\`\n`;
+    reply += `📅 *Periode   :* ${periodLabel}\n`;
+    reply += `📊 *Ditemukan :* ${res.count} transaksi\n`;
+    if (res.totalExpense > 0) reply += `📉 *Total Keluar:* \`${formatRupiah(res.totalExpense)}\`\n`;
+    if (res.totalIncome > 0) reply += `📈 *Total Masuk :* \`${formatRupiah(res.totalIncome)}\`\n`;
+    reply += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+
+    res.transactions.slice(0, 15).forEach((t, i) => {
+      const icon = t.type === 'EXPENSE' ? '🔴' : (t.type === 'INCOME' ? '🟢' : '🔄');
+      reply += `${i + 1}. ${icon} \`${formatRupiah(t.amount)}\` [${t.source_wallet || t.target_wallet || '-'}]\n`;
+      reply += `   └ _${t.description}_ (${t.category}) • ${t.created_at || ''}\n`;
+    });
+
+    if (res.count > 15) {
+      reply += `\n_...dan ${res.count - 15} transaksi lainnya (lihat lengkap di Web Dashboard)._\n`;
+    }
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.url('🌐 Buka Web Dashboard', `http://${WEB_DOMAIN}`)]
+    ]);
+
+    await ctx.reply(reply, { parse_mode: 'Markdown', ...keyboard });
+  });
+
+  // Action: Quick Bills Shortcuts
+  const billKeywords = [
+    { code: 'quick_bill_indihome', name: 'IndiHome / Wifi', amount: 350000, cat: 'Tagihan Bulanan', desc: 'Tagihan IndiHome' },
+    { code: 'quick_bill_listrik',  name: 'Listrik PLN',      amount: 200000, cat: 'Tagihan Bulanan', desc: 'Tagihan Listrik PLN' },
+    { code: 'quick_bill_pdam',     name: 'Air PDAM',         amount: 100000, cat: 'Tagihan Bulanan', desc: 'Tagihan Air PDAM' },
+    { code: 'quick_bill_bpjs',     name: 'BPJS Kesehatan',    amount: 150000, cat: 'Tagihan Bulanan', desc: 'Tagihan BPJS Kesehatan' }
+  ];
+
+  billKeywords.forEach(b => {
+    bot.action(b.code, async (ctx) => {
+      await ctx.answerCbQuery();
+      const draftId = createDraftId();
+      const wallets = db.getWallets();
+
+      pendingDrafts.set(draftId, {
+        action: 'EXPENSE',
+        amount: b.amount,
+        wallet: wallets[0]?.name || 'Bank Mandiri',
+        category: b.cat,
+        description: b.desc,
+        created_at: Date.now()
+      });
+
+      const confirmText = `🔔 *KONFIRMASI BAYAR TAGIHAN BULANAN*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `🏢 *Tagihan  :* ${b.name}\n` +
+        `💸 *Nominal  :* \`${formatRupiah(b.amount)}\`\n` +
+        `👛 *Dompet   :* ${wallets[0]?.name || 'Bank Mandiri'}\n` +
+        `🏷️ *Kategori :* ${b.cat}\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `_Klik Simpan Sekarang untuk mencatat pembayaran:_`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback('✅ Simpan Sekarang', `save_draft_${draftId}`),
+          Markup.button.callback('❌ Batalkan', `cancel_draft_${draftId}`)
+        ],
+        [
+          Markup.button.callback('👛 Ganti Dompet', `choose_wal_${draftId}`)
+        ]
+      ]);
+
+      await ctx.reply(confirmText, { parse_mode: 'Markdown', ...keyboard });
+    });
+  });
+
   // /web
   bot.command('web', async (ctx) => {
     await ctx.reply(`🌐 *Web Dashboard Keuangan:* http://${WEB_DOMAIN}`, {
