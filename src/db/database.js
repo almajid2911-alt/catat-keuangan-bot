@@ -103,7 +103,6 @@ function adjustWalletBalance(name, delta) {
 }
 
 function recordExpense(walletName, amount, category = 'Pengeluaran', description = '') {
-  const data = readDb();
   const w = getWalletByName(walletName);
   if (!w) throw new Error(`Dompet "${walletName}" tidak ditemukan.`);
 
@@ -209,6 +208,28 @@ function recordTransfer(fromWalletName, toWalletName, amount, description = '') 
   };
 }
 
+function undoTransaction(txId) {
+  const data = readDb();
+  const idx = data.transactions.findIndex(t => t.id === Number(txId));
+  if (idx === -1) throw new Error('Transaksi tidak ditemukan atau sudah dibatalkan.');
+
+  const tx = data.transactions[idx];
+
+  if (tx.type === 'EXPENSE') {
+    adjustWalletBalance(tx.source_wallet, tx.amount);
+  } else if (tx.type === 'INCOME') {
+    adjustWalletBalance(tx.target_wallet, -tx.amount);
+  } else if (tx.type === 'TRANSFER') {
+    adjustWalletBalance(tx.source_wallet, tx.amount);
+    adjustWalletBalance(tx.target_wallet, -tx.amount);
+  }
+
+  const updated = readDb();
+  updated.transactions = updated.transactions.filter(t => t.id !== Number(txId));
+  writeDb(updated);
+  return tx;
+}
+
 function getTransactions(limit = 100) {
   const data = readDb();
   return (data.transactions || []).slice(0, limit);
@@ -266,6 +287,7 @@ module.exports = {
   recordExpense,
   recordIncome,
   recordTransfer,
+  undoTransaction,
   getTransactions,
   getSummaryStats
 };
