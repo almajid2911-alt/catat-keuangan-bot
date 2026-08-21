@@ -303,6 +303,11 @@ function getFrequentExpenses(limit = 6) {
     }
   });
 
+  return Object.values(freqMap)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
+}
+
 function getDailySummary(targetDate = new Date()) {
   const data = readDb();
   const txs = data.transactions || [];
