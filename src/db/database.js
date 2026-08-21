@@ -418,6 +418,13 @@ function searchTransactions({ keyword = '', category = '', month = null, year = 
   };
 }
 
+function clearAllTransactions() {
+  const data = readDb();
+  data.transactions = [];
+  writeDb(data);
+  return true;
+}
+
 module.exports = {
   getWallets,
   getWalletByName,
@@ -429,6 +436,7 @@ module.exports = {
   recordIncome,
   recordTransfer,
   undoTransaction,
+  clearAllTransactions,
   getTransactions,
   getSummaryStats,
   getFrequentExpenses,

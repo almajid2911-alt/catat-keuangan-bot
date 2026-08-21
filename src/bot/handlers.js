@@ -170,6 +170,38 @@ function setupBotHandlers(bot) {
     }
   });
 
+  // /reset (Bersihkan data riwayat testing)
+  bot.command(['reset', 'cleartx', 'cleartransaksi'], async (ctx) => {
+    const confirmText = `⚠️ *KONFIRMASI RESET RIWAYAT TRANSAKSI*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `Apakah Anda yakin ingin menghapus seluruh riwayat transaksi pengeluaran/pemasukan testing?\n\n` +
+      `_Catatan: Saldo dompet Anda saat ini akan tetap aman._`;
+
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('🗑️ Ya, Hapus Semua Riwayat', 'confirm_clear_all_tx'),
+        Markup.button.callback('❌ Batal', 'cancel_clear_all_tx')
+      ]
+    ]);
+
+    await ctx.reply(confirmText, { parse_mode: 'Markdown', ...keyboard });
+  });
+
+  bot.action('confirm_clear_all_tx', async (ctx) => {
+    await ctx.answerCbQuery('Membersihkan riwayat...');
+    db.clearAllTransactions();
+    await ctx.editMessageText(
+      `✨ *RIWAYAT TRANSAKSI BERHASIL DIBERSIHKAN!*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📊 Pengeluaran bulan ini sekarang: \`Rp 0\`\n` +
+      `Bot Anda sekarang bersih dan siap digunakan untuk pencatatan harian yang sesungguhnya. 👍`,
+      { parse_mode: 'Markdown' }
+    );
+  });
+
+  bot.action('cancel_clear_all_tx', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText('❌ Pembersihan riwayat dibatalkan.', { parse_mode: 'Markdown' });
+  });
+
   // /dompet (Kelola dompet)
   bot.command('dompet', async (ctx) => {
     const text = ctx.message.text.trim();
