@@ -168,39 +168,121 @@ function setupBotHandlers(bot) {
     const text = ctx.message.text.trim();
     const parts = text.split(/\s+/);
 
+    // /dompet tambah [Nama] [SaldoAwal]
     if (parts.length >= 3 && parts[1].toLowerCase() === 'tambah') {
       const name = parts[2];
-      const initial = parseFloat(parts[3] || '0');
+      const initial = parseAmount(parts.slice(3).join(' ')) || 0;
       try {
         db.addWallet(name, initial);
+        syncTransactionToSheet({ id: Date.now(), type: 'ADD_WALLET', amount: initial, description: `Tambah Dompet ${name}` }, db.getWallets());
         return ctx.reply(`✅ Dompet *${name}* berhasil ditambahkan dengan saldo awal \`${formatRupiah(initial)}\`!`, { parse_mode: 'Markdown' });
       } catch (e) {
         return ctx.reply(`❌ Gagal menambah dompet: ${e.message}`);
       }
     }
 
-    if (parts.length >= 4 && parts[1].toLowerCase() === 'set') {
-      const name = parts[2];
-      const newBal = parseFloat(parts[3]);
+    // /dompet set [Nama] [SaldoBaru] (Mendukung 3jt / 500k / 1500000)
+    if (parts.length >= 3 && (parts[1].toLowerCase() === 'set' || parts[1].toLowerCase() === 'ubah')) {
+      const rawArgs = parts.slice(2).join(' ');
+      const amount = parseAmount(parts[parts.length - 1]);
+      const walletNameRaw = parts.slice(2, parts.length - 1).join(' ') || parts[2];
+      const targetWallet = db.getWalletByName(walletNameRaw) || db.getWalletByName(parts[2]);
+
+      if (!targetWallet) {
+        return ctx.reply(`❌ Dompet "${walletNameRaw}" tidak ditemukan. Gunakan nama dompet yang sesuai (misal: Mandiri, ShopeePay, Tunai, BCA).`);
+      }
+
       try {
-        db.updateWalletBalance(name, newBal);
-        return ctx.reply(`✅ Saldo dompet *${name}* berhasil diubah menjadi \`${formatRupiah(newBal)}\`!`, { parse_mode: 'Markdown' });
+        db.updateWalletBalance(targetWallet.name, amount);
+        syncTransactionToSheet({ id: Date.now(), type: 'SET_BALANCE', amount, wallet: targetWallet.name, description: `Ubah Saldo Manual` }, db.getWallets());
+        return ctx.reply(`✅ Saldo dompet *${targetWallet.name}* berhasil diubah menjadi \`${formatRupiah(amount)}\`!`, { parse_mode: 'Markdown' });
       } catch (e) {
         return ctx.reply(`❌ Gagal update saldo: ${e.message}`);
       }
     }
 
     const wallets = db.getWallets();
-    let msg = `👛 *PANDUAN KELOLA DOMPET*\n━━━━━━━━━━━━━━━━━━━━━━\n`;
+    let msg = `👛 *PANDUAN KELOLA & EDIT SALDO DOMPET*\n━━━━━━━━━━━━━━━━━━━━━━\n`;
     wallets.forEach(w => {
       msg += `• *${w.name}*: \`${formatRupiah(w.balance)}\`\n`;
     });
     msg += `━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `💡 *Command Tambah / Ubah Saldo:*\n` +
-      `• \`/dompet tambah BCA 500000\`\n` +
-      `• \`/dompet set Mandiri 1500000\``;
+      `💡 *Cara Mengubah / Edit Saldo Dompet:*\n` +
+      `👉 \`/dompet set Mandiri 3jt\`\n` +
+      `👉 \`/dompet set BCA 500k\`\n` +
+      `👉 \`/dompet set ShopeePay 1.5jt\`\n` +
+      `👉 \`/dompet set Tunai 250000\`\n\n` +
+      `➕ *Cara Tambah Dompet Baru:*\n` +
+      `👉 \`/dompet tambah DANA 100k\`\n\n` +
+      `🔄 *Tarik Saldo Terkini dari Google Sheet:*\n` +
+      `👉 Ketik \`/syncsheet\``;
 
     await ctx.reply(msg, { parse_mode: 'Markdown' });
+  });
+
+  // /setsaldo [Nama] [Nominal] (Shortcut langsung)
+  bot.command(['setsaldo', 'set'], async (ctx) => {
+    const text = ctx.message.text.trim();
+    const parts = text.split(/\s+/);
+    if (parts.length < 3) {
+      return ctx.reply('💡 *Format:* `/set <NamaDompet> <Nominal>`\nContoh: `/set Mandiri 3jt` atau `/set BCA 500000`', { parse_mode: 'Markdown' });
+    }
+    const amount = parseAmount(parts[parts.length - 1]);
+    const walletNameRaw = parts.slice(1, parts.length - 1).join(' ');
+    const targetWallet = db.getWalletByName(walletNameRaw);
+
+    if (!targetWallet) {
+      return ctx.reply(`❌ Dompet "${walletNameRaw}" tidak ditemukan. Cek daftar dompet dengan command /saldo`);
+    }
+
+    try {
+      db.updateWalletBalance(targetWallet.name, amount);
+      syncTransactionToSheet({ id: Date.now(), type: 'SET_BALANCE', amount, wallet: targetWallet.name, description: 'Ubah Saldo Manual' }, db.getWallets());
+      return ctx.reply(`✅ Saldo dompet *${targetWallet.name}* berhasil diubah menjadi \`${formatRupiah(amount)}\`!`, { parse_mode: 'Markdown' });
+    } catch (e) {
+      return ctx.reply(`❌ Gagal update saldo: ${e.message}`);
+    }
+  });
+
+  // /syncsheet (Tarik saldo yang diedit langsung di Google Sheet)
+  bot.command(['syncsheet', 'tariksheet', 'tarik'], async (ctx) => {
+    const waiting = await ctx.reply('⏳ *Sedang memeriksa dan menarik data dari Google Sheet...*', { parse_mode: 'Markdown' });
+    try {
+      const { fetchWalletsFromSheet } = require('../services/sheets');
+      const sheetWallets = await fetchWalletsFromSheet();
+
+      if (!sheetWallets || !sheetWallets.length) {
+        return ctx.telegram.editMessageText(
+          ctx.chat.id,
+          waiting.message_id,
+          null,
+          '⚠️ *Google Apps Script Web App belum terhubung.*\n_Ikuti panduan setup Web App Google Script untuk mengaktifkan sinkronisasi otomatis._',
+          { parse_mode: 'Markdown' }
+        );
+      }
+
+      let updatedList = [];
+      for (const sw of sheetWallets) {
+        try {
+          const local = db.getWalletByName(sw.name);
+          if (local) {
+            db.updateWalletBalance(local.name, sw.balance);
+            updatedList.push(`• *${local.name}*: \`${formatRupiah(sw.balance)}\``);
+          } else {
+            db.addWallet(sw.name, sw.balance);
+            updatedList.push(`• *${sw.name}* (Baru): \`${formatRupiah(sw.balance)}\``);
+          }
+        } catch (err) {}
+      }
+
+      const msg = `✅ *SINKRONISASI SALDO GOOGLE SHEET BERHASIL!*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+        updatedList.join('\n') + '\n━━━━━━━━━━━━━━━━━━━━━━\n' +
+        `_Data lokal bot telah diperbarui sesuai isi Google Sheet Anda._`;
+
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, msg, { parse_mode: 'Markdown' });
+    } catch (err) {
+      await ctx.telegram.editMessageText(ctx.chat.id, waiting.message_id, null, `❌ Gagal sinkronisasi: ${err.message}`, { parse_mode: 'Markdown' });
+    }
   });
 
   // /web
@@ -647,7 +729,7 @@ function setupBotHandlers(bot) {
 
       if (draft.action === 'EXPENSE') {
         const res = db.recordExpense(draft.wallet, draft.amount, draft.category, draft.description);
-        syncTransactionToSheet(res);
+        syncTransactionToSheet(res, db.getWallets());
         savedId = res.id;
 
         reply = `✅ *PENGELUARAN BERHASIL DISIMPAN!*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -659,7 +741,7 @@ function setupBotHandlers(bot) {
           `💳 *Sisa Saldo ${res.wallet}:* \`${formatRupiah(res.newBalance)}\``;
       } else if (draft.action === 'INCOME') {
         const res = db.recordIncome(draft.wallet, draft.amount, draft.category, draft.description);
-        syncTransactionToSheet(res);
+        syncTransactionToSheet(res, db.getWallets());
         savedId = res.id;
 
         reply = `✅ *PEMASUKAN BERHASIL DISIMPAN!*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -671,7 +753,7 @@ function setupBotHandlers(bot) {
           `💳 *Sisa Saldo ${res.wallet}:* \`${formatRupiah(res.newBalance)}\``;
       } else if (draft.action === 'TRANSFER') {
         const res = db.recordTransfer(draft.fromWallet, draft.toWallet, draft.amount, draft.description);
-        syncTransactionToSheet(res);
+        syncTransactionToSheet(res, db.getWallets());
         savedId = res.id;
 
         reply = `✅ *TRANSFER BERHASIL DIEKSEKUSI!*\n━━━━━━━━━━━━━━━━━━━━━━\n` +

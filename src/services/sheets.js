@@ -1,66 +1,77 @@
-const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 
-const SPREADSHEET_ID = process.env.SPREADSHEET_FINANCE_ID;
 const WEBAPP_URL = process.env.GOOGLE_SHEET_WEBAPP_URL;
-const CRED_PATH = path.resolve(process.env.GOOGLE_CREDENTIALS_PATH || 'credentials.json');
 
-async function syncTransactionToSheet(tx) {
-  // Opsi 1: Google Apps Script Web App URL
-  if (WEBAPP_URL && WEBAPP_URL.startsWith('http')) {
-    try {
-      await fetch(WEBAPP_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'record_transaction',
-          ...tx
-        })
-      });
-      console.log(`[Google Sheets] Transaksi #${tx.id} tersinkronisasi via Web App.`);
-      return true;
-    } catch (e) {
-      console.warn('[Google Sheets Web App Error]:', e.message);
-    }
+/**
+ * Mengirim transaksi baru & update saldo terkini ke Google Sheet (Tab MONITORING KEUANGAN PERSONAL)
+ */
+async function syncTransactionToSheet(tx, wallets = []) {
+  if (!WEBAPP_URL || !WEBAPP_URL.startsWith('http')) {
+    console.log('[Google Sheets Note] GOOGLE_SHEET_WEBAPP_URL belum diatur di .env');
+    return false;
   }
 
-  // Opsi 2: Google Service Account
-  if (SPREADSHEET_ID && fs.existsSync(CRED_PATH)) {
-    try {
-      const auth = new google.auth.GoogleAuth({
-        keyFile: CRED_PATH,
-        scopes: ['https://www.googleapis.com/auth/spreadsheets']
-      });
-      const sheets = google.sheets({ version: 'v4', auth });
-      const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
+  try {
+    const response = await fetch(WEBAPP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'sync_transaction',
+        tx: {
+          id: tx.id,
+          type: tx.type,
+          amount: tx.amount,
+          source_wallet: tx.source_wallet || tx.wallet || tx.fromWallet || '-',
+          target_wallet: tx.target_wallet || tx.toWallet || '-',
+          category: tx.category || 'Lain-lain',
+          description: tx.description || '-'
+        },
+        wallets: wallets
+      })
+    });
 
-      const row = [
-        now,
-        tx.type,
-        tx.amount,
-        tx.source_wallet || tx.wallet || tx.fromWallet || '-',
-        tx.target_wallet || tx.toWallet || '-',
-        tx.category || '-',
-        tx.description || '-'
-      ];
-
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'TRANSAKSI!A:G',
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [row] }
-      });
-      console.log(`[Google Sheets] Transaksi #${tx.id} berhasil dicatat ke Spreadsheet!`);
+    const result = await response.json();
+    if (result && result.success) {
+      console.log(`✅ [Google Sheets] Transaksi #${tx.id} & Saldo Dompet berhasil dicatat di tab MONITORING KEUANGAN PERSONAL!`);
       return true;
-    } catch (err) {
-      console.warn('[Google Sheets Service Account Error]:', err.message);
     }
+  } catch (e) {
+    console.warn('⚠️ [Google Sheets WebApp Error]:', e.message);
   }
 
   return false;
 }
 
+/**
+ * Menarik data saldo dompet dari Google Sheet jika user mengedit saldo langsung di Spreadsheet
+ */
+async function fetchWalletsFromSheet() {
+  if (!WEBAPP_URL || !WEBAPP_URL.startsWith('http')) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(WEBAPP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'get_wallets'
+      })
+    });
+
+    const result = await response.json();
+    if (result && result.success && Array.isArray(result.wallets) && result.wallets.length > 0) {
+      return result.wallets;
+    }
+  } catch (e) {
+    console.warn('⚠️ [Fetch Wallets From Sheet Error]:', e.message);
+  }
+
+  return null;
+}
+
 module.exports = {
-  syncTransactionToSheet
+  syncTransactionToSheet,
+  fetchWalletsFromSheet
 };
