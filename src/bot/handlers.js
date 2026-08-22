@@ -42,8 +42,9 @@ function setupBotHandlers(bot) {
     const stats = db.getSummaryStats();
     const text = `💰 *ASISTEN CATAT KEUANGAN PERSONAL*\n` +
       `━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `💳 *Total Saldo:* \`${formatRupiah(stats.totalBalance)}\`\n` +
-      `📉 *Keluar:* \`${formatRupiah(stats.monthlyExpense)}\`  |  📈 *Masuk:* \`${formatRupiah(stats.monthlyIncome)}\`\n` +
+      `💳 *Total Saldo :* \`${formatRupiah(stats.totalBalance)}\`\n\n` +
+      `📅 *Hari Ini   :* 📉 \`${formatRupiah(stats.todayExpense)}\`  |  📈 \`${formatRupiah(stats.todayIncome)}\`\n` +
+      `🗓️ *Bulan Ini  :* 📉 \`${formatRupiah(stats.monthlyExpense)}\`  |  📈 \`${formatRupiah(stats.monthlyIncome)}\`\n` +
       `━━━━━━━━━━━━━━━━━━━━━━\n` +
       `💡 _Ketik: \`keluar 25rb mandiri makan\` atau kirim 📸 Foto Struk!_`;
 
@@ -1073,8 +1074,9 @@ function setupBotHandlers(bot) {
     const stats = db.getSummaryStats();
     const text = `💰 *ASISTEN CATAT KEUANGAN PERSONAL*\n` +
       `━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `💳 *Total Saldo:* \`${formatRupiah(stats.totalBalance)}\`\n` +
-      `📉 *Keluar:* \`${formatRupiah(stats.monthlyExpense)}\`  |  📈 *Masuk:* \`${formatRupiah(stats.monthlyIncome)}\`\n` +
+      `💳 *Total Saldo :* \`${formatRupiah(stats.totalBalance)}\`\n\n` +
+      `📅 *Hari Ini   :* 📉 \`${formatRupiah(stats.todayExpense)}\`  |  📈 \`${formatRupiah(stats.todayIncome)}\`\n` +
+      `🗓️ *Bulan Ini  :* 📉 \`${formatRupiah(stats.monthlyExpense)}\`  |  📈 \`${formatRupiah(stats.monthlyIncome)}\`\n` +
       `━━━━━━━━━━━━━━━━━━━━━━\n` +
       `💡 _Ketik: \`keluar 25rb mandiri makan\` atau kirim 📸 Foto Struk!_`;
 

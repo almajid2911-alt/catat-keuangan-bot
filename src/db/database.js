@@ -256,15 +256,27 @@ function getSummaryStats() {
   const totalBalance = wallets.reduce((acc, w) => acc + (w.balance || 0), 0);
 
   const now = new Date();
+  const todayStr = now.toLocaleDateString('id-ID', { timeZone: 'Asia/Makassar' });
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
 
+  let todayExpense = 0;
+  let todayIncome = 0;
   let monthlyExpense = 0;
   let monthlyIncome = 0;
   const categoryMap = {};
 
   transactions.forEach(t => {
     const tDate = t.timestamp ? new Date(t.timestamp) : new Date();
+    const tDateStr = tDate.toLocaleDateString('id-ID', { timeZone: 'Asia/Makassar' });
+
+    // Harian (Hari ini)
+    if (tDateStr === todayStr) {
+      if (t.type === 'EXPENSE') todayExpense += t.amount || 0;
+      if (t.type === 'INCOME') todayIncome += t.amount || 0;
+    }
+
+    // Bulanan (Bulan ini)
     if (tDate.getMonth() === currentMonth && tDate.getFullYear() === currentYear) {
       if (t.type === 'EXPENSE') {
         monthlyExpense += t.amount || 0;
@@ -284,6 +296,8 @@ function getSummaryStats() {
 
   return {
     totalBalance,
+    todayExpense,
+    todayIncome,
     monthlyExpense,
     monthlyIncome,
     wallets,
