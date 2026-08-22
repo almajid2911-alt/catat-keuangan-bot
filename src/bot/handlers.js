@@ -37,53 +37,37 @@ function setupBotHandlers(bot) {
     return next();
   });
 
-  // /start & /help
+  // /start & /help & /menu
   bot.command(['start', 'help', 'menu'], async (ctx) => {
     const stats = db.getSummaryStats();
     const text = `💰 *ASISTEN CATAT KEUANGAN PERSONAL*\n` +
       `━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `💳 *Total Saldo (Net Worth):* \`${formatRupiah(stats.totalBalance)}\`\n` +
-      `📉 *Pengeluaran Bulan Ini :* \`${formatRupiah(stats.monthlyExpense)}\`\n` +
-      `📈 *Pemasukan Bulan Ini   :* \`${formatRupiah(stats.monthlyIncome)}\`\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-      `📸 *Fitur Scan Nota AI:* Cukup kirim **foto struk/nota belanja**, AI akan membaca total nominal dan rinciannya otomatis!\n\n` +
-      `💡 *Format Cepat Pesan Teks:*\n` +
-      `• \`keluar 25rb mandiri makan siang\`\n` +
-      `• \`beli bensin 50k tunai\`\n` +
-      `• \`masuk 1.5jt mandiri gaji\`\n` +
-      `• \`transfer 100k mandiri ke shopeepay\`\n\n` +
-      `_Setiap transaksi akan meminta konfirmasi Anda terlebih dahulu sebelum disimpan._`;
+      `💳 *Total Saldo:* \`${formatRupiah(stats.totalBalance)}\`\n` +
+      `📉 *Keluar:* \`${formatRupiah(stats.monthlyExpense)}\`  |  📈 *Masuk:* \`${formatRupiah(stats.monthlyIncome)}\`\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💡 _Ketik: \`keluar 25rb mandiri makan\` atau kirim 📸 Foto Struk!_`;
 
-    const frequent = db.getFrequentExpenses(4);
-    let freqButtons = [];
-    if (frequent && frequent.length > 0) {
-      freqButtons = frequent.map((f, idx) => [
-        Markup.button.callback(`⚡ ${f.description} (${formatRupiah(f.amount)})`, `quick_freq_${idx}`)
-      ]);
-    }
-
-    const baseButtons = [
+    const keyboard = Markup.inlineKeyboard([
       [
-        Markup.button.callback('💳 Cek Saldo Dompet', 'action_saldo'),
-        Markup.button.callback('📊 Rekap Keuangan', 'action_rekap')
+        Markup.button.callback('💳 Cek Saldo', 'action_saldo'),
+        Markup.button.callback('📊 Rekap Bulan', 'action_rekap')
       ],
       [
-        Markup.button.callback('🔄 Tarik Saldo dari Google Sheet', 'action_sync_sheet')
+        Markup.button.callback('📉 Catat Keluar', 'action_keluar_help'),
+        Markup.button.callback('📈 Catat Masuk', 'action_masuk_help')
       ],
       [
-        Markup.button.callback('📉 Catat Pengeluaran', 'action_keluar_help'),
-        Markup.button.callback('📈 Catat Pemasukan', 'action_masuk_help')
+        Markup.button.callback('🔄 Transfer Dana', 'action_transfer_help'),
+        Markup.button.callback('⚡ Transaksi Cepat', 'action_quick_menu')
       ],
       [
-        Markup.button.callback('🔄 Pindah Dana / Transfer', 'action_transfer_help'),
+        Markup.button.callback('🔄 Tarik Saldo Sheet', 'action_sync_sheet'),
         Markup.button.callback('👛 Kelola Dompet', 'action_dompet')
       ],
       [
         Markup.button.url('🌐 Buka Web Dashboard', `http://${WEB_DOMAIN}`)
       ]
-    ];
-
-    const keyboard = Markup.inlineKeyboard([...freqButtons, ...baseButtons]);
+    ]);
 
     await ctx.reply(text, { parse_mode: 'Markdown', ...keyboard });
   });
@@ -1062,6 +1046,63 @@ function setupBotHandlers(bot) {
     ]);
 
     await ctx.reply(confirmText, { parse_mode: 'Markdown', ...keyboard });
+  });
+
+  bot.action('action_quick_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    const frequent = db.getFrequentExpenses(6);
+    let buttons = [];
+    if (frequent && frequent.length > 0) {
+      buttons = frequent.map((f, i) => [
+        Markup.button.callback(`⚡ ${f.description} (${formatRupiah(f.amount)})`, `quick_freq_${i}`)
+      ]);
+    }
+    buttons.push([Markup.button.callback('⬅️ Kembali ke Menu Utama', 'action_back_menu')]);
+
+    await ctx.reply(
+      `⚡ *DAFTAR TRANSAKSI RUTIN / FAVORIT*\n━━━━━━━━━━━━━━━━━━━━━━\n_Pilih salah satu untuk mencatat instan tanpa perlu mengetik ulang:_`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons)
+      }
+    );
+  });
+
+  bot.action('action_back_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    const stats = db.getSummaryStats();
+    const text = `💰 *ASISTEN CATAT KEUANGAN PERSONAL*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💳 *Total Saldo:* \`${formatRupiah(stats.totalBalance)}\`\n` +
+      `📉 *Keluar:* \`${formatRupiah(stats.monthlyExpense)}\`  |  📈 *Masuk:* \`${formatRupiah(stats.monthlyIncome)}\`\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💡 _Ketik: \`keluar 25rb mandiri makan\` atau kirim 📸 Foto Struk!_`;
+
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('💳 Cek Saldo', 'action_saldo'),
+        Markup.button.callback('📊 Rekap Bulan', 'action_rekap')
+      ],
+      [
+        Markup.button.callback('📉 Catat Keluar', 'action_keluar_help'),
+        Markup.button.callback('📈 Catat Masuk', 'action_masuk_help')
+      ],
+      [
+        Markup.button.callback('🔄 Transfer Dana', 'action_transfer_help'),
+        Markup.button.callback('⚡ Transaksi Cepat', 'action_quick_menu')
+      ],
+      [
+        Markup.button.callback('🔄 Tarik Saldo Sheet', 'action_sync_sheet'),
+        Markup.button.callback('👛 Kelola Dompet', 'action_dompet')
+      ],
+      [
+        Markup.button.url('🌐 Buka Web Dashboard', `http://${WEB_DOMAIN}`)
+      ]
+    ]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard }).catch(async () => {
+      await ctx.reply(text, { parse_mode: 'Markdown', ...keyboard });
+    });
   });
 
   bot.action('action_keluar_help', async (ctx) => {
